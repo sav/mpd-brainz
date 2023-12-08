@@ -206,8 +206,8 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 	// discoveries. As there isn't a set standard to ascertain the sequence,
 	// the order we establish is essentially an inference from the data
 	// received from these online sources. If inconsistencies arise with the
-	// established orders, configuring customization in the file might be
-	// necessary.
+	// established orders, it might be necessary to allow proper customization
+	// in the configuration file.
 
 	if artistName == "" && strings.Contains(trackName, " - ") {
 		elems := strings.Split(trackName, " - ")
