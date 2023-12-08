@@ -251,7 +251,7 @@ func submitListen(listens Listens, token string) error {
 	}
 
 	if verbose && listens.ListenType == "single" {
-		fmt.Printf("(debug) Submitting listen: %s - %s\n",
+		log.Printf("(debug) Submitting listen: %s - %s\n",
 			listens.Payload[0].Track.ArtistName, listens.Payload[0].Track.TrackName)
 	}
 
