@@ -1,0 +1,3 @@
+mpd_address: "localhost:6600"
+polling_interval_seconds: 30
+listenbrainz_token: "<token>"
