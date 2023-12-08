@@ -1,6 +1,4 @@
 /*
- * MIT License
- *
  * Copyright (c) 2023 Savio Sena <savio.sena@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
