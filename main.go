@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	_ "embed"
+
 	"github.com/fhs/gompd/mpd"
 	"github.com/spf13/viper"
 )
@@ -41,6 +43,14 @@ import (
 const ConfigFile = ".mpd-brainz.conf"
 
 const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
+
+//go:embed VERSION
+var Version string
+
+func version() {
+	fmt.Printf("mpd-brainz v%s", Version)
+	os.Exit(0)
+}
 
 type Info struct {
 	MediaPlayer             string   `json:"media_player,omitempty"`
@@ -71,14 +81,20 @@ type Listens struct {
 }
 
 var (
-	lastListen Listens
-	verbose    bool
-	token      string
+	lastListen   Listens
+	verbose      bool
+	token        string
+	printVersion bool
 )
 
 func main() {
 	flag.BoolVar(&verbose, "v", false, "Enable debug logs.")
+	flag.BoolVar(&printVersion, "V", false, "Print version number.")
 	flag.Parse()
+
+	if printVersion {
+		version()
+	}
 
 	if verbose {
 		log.Printf("(debug) verbose is %v\n", verbose)
@@ -218,8 +234,8 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 				TrackName:   trackName,
 				ReleaseName: releaseName,
 				Info: Info{
-					SubmissionClient:        "scrobbler",
-					SubmissionClientVersion: "0.1.0",
+					SubmissionClient:        "mpd-brainz",
+					SubmissionClientVersion: Version,
 					MusicService:            musicService,
 					OriginUrl:               originUrl,
 				},
