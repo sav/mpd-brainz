@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -308,6 +309,72 @@ func scrobble() {
 	}
 }
 
+func skipLine(file *os.File) {
+	info, err := file.Stat()
+	if err != nil {
+		Fatal("reading file stats: %s: %s", file.Name, err)
+	}
+
+	var n int = int(info.Size())
+	var b []byte = []byte{' '}
+
+	for i := 0; i < n; i++ {
+		_, err = file.Read(b)
+		if b[0] == '\n' {
+			break
+		}
+	}
+}
+
+func dateToUnix(date string) int64 {
+	t, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		Error("parsing date: %s: %s", date, err)
+		return 0
+	}
+	return t.Unix()
+}
+
+func shazamBuffListens(reader *csv.Reader, listen *Listens) bool {
+	for i := 0; i < ListensMaxSize; i++ {
+		e, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				return true
+			}
+			Error("%s", err)
+			i -= 1
+			continue
+		}
+		listen.Add(e[3], e[2], "", e[4], "shazam.com", dateToUnix(e[1]))
+	}
+	return false
+}
+
+func shazam() {
+	file, err := os.Open(importShazam)
+	if err != nil {
+		Fatal("opening file: %s", err)
+	}
+	defer file.Close()
+
+	skipLine(file)
+	skipLine(file)
+
+	reader := csv.NewReader(file)
+	for {
+		listens := NewListens("import")
+		finished := shazamBuffListens(reader, &listens)
+		err = listens.Submit("import", token)
+		if err != nil {
+			Fatal("submitting \"import\" to ListenBrainz: %s", err)
+		}
+		if finished {
+			break
+		}
+	}
+}
+
 func config() {
 	viper.SetConfigName(ConfigFile)
 	viper.SetConfigType("yaml")
@@ -351,5 +418,9 @@ func main() {
 	optarg()
 	config()
 
-	scrobble()
+	if importShazam != "" {
+		shazam()
+	} else {
+		scrobble()
+	}
 }
