@@ -44,12 +44,41 @@ const ConfigFile = ".mpd-brainz.conf"
 
 const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
+var (
+	lastListen   Listens
+	verbose      bool
+	printVersion bool
+	importShazam string
+
+	mpdAddress string
+	interval   time.Duration
+	token      string
+)
+
 //go:embed VERSION
 var Version string
 
-func version() {
+func PrintVersion() {
 	fmt.Printf("mpd-brainz v%s", Version)
 	os.Exit(0)
+}
+
+func Log(fmt string, args ...any) {
+	log.Printf(fmt+"\n", args...)
+}
+
+func Debug(fmt string, args ...any) {
+	if verbose {
+		log.Printf(fmt+"\n", args...)
+	}
+}
+
+func Error(fmt string, args ...any) {
+	log.Printf("error: "+fmt+"\n", args...)
+}
+
+func Fatal(fmt string, args ...any) {
+	log.Fatalf("error: "+fmt+"\n", args...)
 }
 
 type Info struct {
@@ -75,131 +104,69 @@ type Listen struct {
 	Track      Track `json:"track_metadata,omitempty"`
 }
 
+func (l *Listen) String() string {
+	return fmt.Sprintf("\"%s - %s\"", l.Track.ArtistName, l.Track.TrackName)
+}
+
 type Listens struct {
 	ListenType string   `json:"listen_type,omitempty"`
 	Payload    []Listen `json:"payload,omitempty"`
 }
 
-var (
-	lastListen   Listens
-	verbose      bool
-	token        string
-	printVersion bool
-)
+const ListensMaxSize = 500
 
-func main() {
-	flag.BoolVar(&verbose, "v", false, "Enable debug logs.")
-	flag.BoolVar(&printVersion, "V", false, "Print version number.")
-	flag.Parse()
-
-	if printVersion {
-		version()
+func NewListens(listenType string) Listens {
+	return Listens{
+		ListenType: listenType,
+		Payload:    []Listen{},
 	}
+}
 
-	if verbose {
-		log.Printf("(debug) verbose is %v\n", verbose)
+func NewListen(listenType string, artistName string, trackName string,
+	releaseName string, originUrl string, musicService string, timestamp int64) Listens {
+	listens := NewListens("single")
+	listens.Add(artistName, trackName, releaseName, originUrl, musicService, timestamp)
+	return listens
+}
+
+func (l *Listens) Length() int {
+	return len(l.Payload)
+}
+
+func (l *Listens) String() string {
+	s := ""
+	n := l.Length()
+	if n == 1 {
+		return l.Payload[0].String()
 	}
-
-	viper.SetConfigName(ConfigFile)
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("$HOME")
-
-	viper.SetDefault("mpd_address", "localhost:6600")
-	viper.SetDefault("polling_interval_seconds", 10)
-	viper.SetDefault("listenbrainz_token", "")
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			log.Fatalf("Error opening configuration file: %s", err)
+	for i := 0; i < n; i++ {
+		t := l.Payload[i].String()
+		if i != n-1 {
+			t += ", "
 		}
+		s += t
 	}
-
-	mpdAddress := viper.GetString("mpd_address")
-	interval := viper.GetDuration("polling_interval_seconds") * time.Second
-	token = viper.GetString("listenbrainz_token")
-	if token == "" {
-		token = os.Getenv("LISTENBRAINZ_TOKEN")
-	}
-	if token == "" {
-		log.Fatal(fmt.Sprintln("ListenBrainz token not found.",
-			"Either define LISTENBRAINZ_TOKEN or set listenbrainz_token in",
-			"~/"+ConfigFile+"."))
-	}
-
-	conn, err := mpd.Dial("tcp", mpdAddress)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-	if verbose {
-		log.Printf("(debug) connected to MPD: %s\n", mpdAddress)
-	}
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	if verbose {
-		log.Printf("(debug) scrobbling with an interval of %s\n", interval)
-	}
-
-	for {
-		select {
-		case <-ticker.C:
-			currentListen, err := getCurrentListen(conn)
-			if err != nil {
-				log.Println("error obtaining current song from MPD:", err)
-				continue
-			}
-			if !currentListen.Equal(lastListen) && !currentListen.IsNil() {
-				err = submitListen(currentListen, token)
-				if err != nil {
-					log.Println("error submitting scrobbles to ListenBrainz:", err)
-					continue
-				}
-				currentListen.ListenType = "playing_now"
-				currentListen.Payload[0].ListenedAt = 0
-				err = submitListen(currentListen, token)
-				if err != nil {
-					log.Println("error submitting scrobbles to ListenBrainz:", err)
-					continue
-				}
-				lastListen = currentListen
-			} else {
-			}
-		case <-stop:
-			return
-		}
-	}
+	return fmt.Sprintf("{%s, [%s]}", l.ListenType, s)
 }
 
 func (l *Listens) IsNil() bool {
 	return l == nil ||
-		len(l.Payload) == 0 ||
+		l.Length() == 0 ||
 		l.Payload[0].Track.ArtistName == "" ||
 		l.Payload[0].Track.TrackName == ""
 }
 
 func (l *Listens) Equal(o Listens) bool {
-	return l != nil && len(l.Payload) > 0 && len(o.Payload) > 0 &&
+	return l != nil && l.Length() > 0 && o.Length() > 0 &&
 		l.Payload[0].Track.ArtistName == o.Payload[0].Track.ArtistName &&
 		l.Payload[0].Track.TrackName == o.Payload[0].Track.TrackName
 }
 
-func getCurrentListen(conn *mpd.Client) (Listens, error) {
-	currentSong, err := conn.CurrentSong()
-	if err != nil {
-		return Listens{}, err
+func (l *Listens) Add(artistName string, trackName string, releaseName string,
+	originUrl string, musicService string, listenedAt int64) {
+	if listenedAt == 0 {
+		listenedAt = time.Now().Unix()
 	}
-
-	musicService := currentSong["Name"]
-	artistName := currentSong["Artist"]
-	trackName := currentSong["Title"]
-	releaseName := currentSong["Album"]
-	originUrl := currentSong["file"]
-	listenedAt := time.Now().Unix()
 
 	// When receiving metadata in a unified field, particularly during online
 	// radio playback, we attempt to parse and interpret it based on our
@@ -225,34 +192,36 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 		}
 	}
 
-	return Listens{
-		ListenType: "single",
-		Payload: []Listen{{
-			ListenedAt: listenedAt,
-			Track: Track{
-				ArtistName:  artistName,
-				TrackName:   trackName,
-				ReleaseName: releaseName,
-				Info: Info{
-					SubmissionClient:        "mpd-brainz",
-					SubmissionClientVersion: Version,
-					MusicService:            musicService,
-					OriginUrl:               originUrl,
-				},
+	l.Payload = append(l.Payload, Listen{
+		ListenedAt: listenedAt,
+		Track: Track{
+			ArtistName:  artistName,
+			TrackName:   trackName,
+			ReleaseName: releaseName,
+			Info: Info{
+				SubmissionClient:        "mpd-brainz",
+				SubmissionClientVersion: Version,
+				MusicService:            musicService,
+				OriginUrl:               originUrl,
 			},
-		}},
-	}, nil
+		},
+	})
 }
 
-func submitListen(listens Listens, token string) error {
-	jsonData, err := json.MarshalIndent(listens, "", "   ")
+func (l *Listens) Submit(listenType string, token string) error {
+	jsonData, err := json.MarshalIndent(l, "", "   ")
 	if err != nil {
 		return err
 	}
 
-	if verbose && listens.ListenType == "single" {
-		log.Printf("(debug) Submitting listen: %s - %s\n",
-			listens.Payload[0].Track.ArtistName, listens.Payload[0].Track.TrackName)
+	l.ListenType = listenType
+
+	if l.ListenType == "playing_now" {
+		l.Payload[0].ListenedAt = 0
+	} else if l.ListenType == "import" {
+		Log("importing %d listens", l.Length())
+	} else {
+		Log("submitting listen: %s", l)
 	}
 
 	req, err := http.NewRequest("POST", listenBrainzURL, bytes.NewBuffer(jsonData))
@@ -269,9 +238,118 @@ func submitListen(listens Listens, token string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusBadRequest {
+		Debug("bad request with data: %s", jsonData)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("error submitting request. status: %s", resp.Status)
 	}
 
 	return nil
+}
+
+func getCurrentListen(conn *mpd.Client) (Listens, error) {
+	currentSong, err := conn.CurrentSong()
+	if err != nil {
+		return Listens{}, err
+	}
+
+	artistName := currentSong["Artist"]
+	trackName := currentSong["Title"]
+	releaseName := currentSong["Album"]
+	originUrl := currentSong["file"]
+	musicService := currentSong["Name"]
+
+	return NewListen("single", artistName, trackName, releaseName,
+		originUrl, musicService, 0), nil
+}
+
+func scrobble() {
+	conn, err := mpd.Dial("tcp", mpdAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	Log("connected to MPD: %s", mpdAddress)
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	Debug("scrobbling with an interval: %s", interval)
+
+	for {
+		select {
+		case <-ticker.C:
+			currentListen, err := getCurrentListen(conn)
+			if err != nil {
+				log.Println("error obtaining current song from MPD:", err)
+				continue
+			}
+			if !currentListen.Equal(lastListen) && !currentListen.IsNil() {
+				err = currentListen.Submit("single", token)
+				if err != nil {
+					Error("submitting scrobble to ListenBrainz: %s", err)
+					continue
+				}
+				err = currentListen.Submit("playing_now", token)
+				if err != nil {
+					Error("submitting \"playing now\" to ListenBrainz: %s", err)
+					continue
+				}
+				lastListen = currentListen
+			} else {
+			}
+		case <-stop:
+			return
+		}
+	}
+}
+
+func config() {
+	viper.SetConfigName(ConfigFile)
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath("$HOME")
+
+	viper.SetDefault("mpd_address", "localhost:6600")
+	viper.SetDefault("polling_interval_seconds", 10)
+	viper.SetDefault("listenbrainz_token", "")
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			log.Fatalf("Error opening configuration file: %s", err)
+		}
+	}
+
+	mpdAddress = viper.GetString("mpd_address")
+	interval = viper.GetDuration("polling_interval_seconds") * time.Second
+	token = viper.GetString("listenbrainz_token")
+	if token == "" {
+		token = os.Getenv("LISTENBRAINZ_TOKEN")
+	}
+	if token == "" {
+		log.Fatal(fmt.Sprintln("ListenBrainz token not found.",
+			"Either define LISTENBRAINZ_TOKEN or set listenbrainz_token in",
+			"~/"+ConfigFile+"."))
+	}
+}
+
+func optarg() {
+	flag.BoolVar(&verbose, "v", false, "Enable debug logs.")
+	flag.BoolVar(&printVersion, "V", false, "Print version number.")
+	flag.StringVar(&importShazam, "i", "", "Import Shazam Library.")
+	flag.Parse()
+
+	if printVersion {
+		PrintVersion()
+	}
+}
+
+func main() {
+	optarg()
+	config()
+
+	scrobble()
 }
