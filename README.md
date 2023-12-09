@@ -40,6 +40,6 @@ Contributions to this project are welcome! Feel free to open issues for bug repo
 
 ## License
 
-This project is licensed under the [License Name] - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
    
