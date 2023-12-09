@@ -30,9 +30,27 @@ listenbrainz_token: "<token>"
 
 Ensure you have a valid ListenBrainz Authentication Token to successfully scrobble your music.
 
-## Usage
+## Scrobbling
 
-Once configured, mpd-brainz will automatically scrobble your MPD music playback to ListenBrainz. Simply start your MPD server, and mpd-brainz will handle the rest.
+Once running, mpd-brainz will automatically scrobble your MPD music playback to ListenBrainz. Simply start your MPD server, and mpd-brainz will handle the rest.
+
+```bash
+./mpd-brainz -v 
+```
+
+## Imports
+
+To import your Shazam library exported as a CSV file into `mpd-brainz`, follow these steps:
+
+   1. **Prepare your Shazam Library CSV:** 
+      Export your Shazam library as a **CSV** file. Ensure the exported file contains the necessary fields or data that `mpd-brainz` expects. 
+
+   2. **Execute the Import Command:**
+      Use the following command syntax to import your Shazam library:
+
+      ```bash
+      ./mpd-brainz -i shazamlibrary.csv
+      ```
 
 ## Contributing
 
