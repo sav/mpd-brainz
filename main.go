@@ -41,20 +41,23 @@ import (
 	"github.com/spf13/viper"
 )
 
-const ConfigFile = ".mpd-brainz.conf"
-
 const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
-var (
-	lastListen   Listens
-	verbose      bool
-	printVersion bool
-	importShazam string
+const ConfigFile = "mpd-brainz.conf"
 
+type Config struct {
 	mpdAddress  string
 	mpdPassword string
 	interval    time.Duration
 	token       string
+}
+
+var (
+	verbose      bool
+	printVersion bool
+	importShazam string
+
+	lastListen Listens
 )
 
 //go:embed VERSION
@@ -266,21 +269,21 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 		originUrl, musicService, 0), nil
 }
 
-func scrobble() {
-	conn, err := mpd.DialAuthenticated("tcp", mpdAddress, mpdPassword)
+func scrobble(conf Config) {
+	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
-	Log("connected to MPD: %s", mpdAddress)
+	Log("connected to MPD: %s", conf.mpdAddress)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(conf.interval)
 	defer ticker.Stop()
 
-	Debug("scrobbling with an interval: %s", interval)
+	Debug("scrobbling with an interval: %s", conf.interval)
 
 	for {
 		select {
@@ -291,12 +294,12 @@ func scrobble() {
 				continue
 			}
 			if !currentListen.Equal(lastListen) && !currentListen.IsNil() {
-				err = currentListen.Submit("single", token)
+				err = currentListen.Submit("single", conf.token)
 				if err != nil {
 					Error("submitting scrobble to ListenBrainz: %s", err)
 					continue
 				}
-				err = currentListen.Submit("playing_now", token)
+				err = currentListen.Submit("playing_now", conf.token)
 				if err != nil {
 					Error("submitting \"playing now\" to ListenBrainz: %s", err)
 					continue
@@ -352,7 +355,7 @@ func shazamBuffListens(reader *csv.Reader, listen *Listens) bool {
 	return false
 }
 
-func shazam() {
+func shazam(conf Config) {
 	file, err := os.Open(importShazam)
 	if err != nil {
 		Fatal("opening file: %s", err)
@@ -366,7 +369,7 @@ func shazam() {
 	for {
 		listens := NewListens("import")
 		finished := shazamBuffListens(reader, &listens)
-		err = listens.Submit("import", token)
+		err = listens.Submit("import", conf.token)
 		if err != nil {
 			Fatal("submitting \"import\" to ListenBrainz: %s", err)
 		}
@@ -376,7 +379,9 @@ func shazam() {
 	}
 }
 
-func config() {
+func config() Config {
+	var conf Config
+
 	viper.SetConfigName(ConfigFile)
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("$HOME")
@@ -391,18 +396,20 @@ func config() {
 		}
 	}
 
-	mpdAddress = viper.GetString("mpd_address")
-	mpdPassword = viper.GetString("mpd_password")
-	interval = viper.GetDuration("polling_interval_seconds") * time.Second
-	token = viper.GetString("listenbrainz_token")
-	if token == "" {
-		token = os.Getenv("LISTENBRAINZ_TOKEN")
+	conf.mpdAddress = viper.GetString("mpd_address")
+	conf.mpdPassword = viper.GetString("mpd_password")
+	conf.interval = viper.GetDuration("polling_interval_seconds") * time.Second
+	conf.token = viper.GetString("listenbrainz_token")
+	if conf.token == "" {
+		conf.token = os.Getenv("LISTENBRAINZ_TOKEN")
 	}
-	if token == "" {
+	if conf.token == "" {
 		log.Fatal(fmt.Sprintln("ListenBrainz token not found.",
 			"Either define LISTENBRAINZ_TOKEN or set listenbrainz_token in",
 			"~/"+ConfigFile+"."))
 	}
+
+	return conf
 }
 
 func optarg() {
@@ -418,11 +425,11 @@ func optarg() {
 
 func main() {
 	optarg()
-	config()
+	conf := config()
 
 	if importShazam != "" {
-		shazam()
+		shazam(conf)
 	} else {
-		scrobble()
+		scrobble(conf)
 	}
 }
