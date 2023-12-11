@@ -63,7 +63,7 @@ var (
 //go:embed VERSION
 var Version string
 
-func PrintVersion() {
+func version() {
 	fmt.Printf("mpd-brainz v%s", Version)
 	os.Exit(0)
 }
@@ -417,14 +417,15 @@ func optarg() {
 	flag.BoolVar(&printVersion, "V", false, "Print version number.")
 	flag.StringVar(&importShazam, "i", "", "Import Shazam Library.")
 	flag.Parse()
-
-	if printVersion {
-		PrintVersion()
-	}
 }
 
 func main() {
 	optarg()
+
+	if printVersion {
+		version()
+	}
+
 	conf := config()
 
 	if importShazam != "" {
