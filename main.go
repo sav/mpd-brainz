@@ -51,9 +51,10 @@ var (
 	printVersion bool
 	importShazam string
 
-	mpdAddress string
-	interval   time.Duration
-	token      string
+	mpdAddress  string
+	mpdPassword string
+	interval    time.Duration
+	token       string
 )
 
 //go:embed VERSION
@@ -266,7 +267,7 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 }
 
 func scrobble() {
-	conn, err := mpd.Dial("tcp", mpdAddress)
+	conn, err := mpd.DialAuthenticated("tcp", mpdAddress, mpdPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -391,6 +392,7 @@ func config() {
 	}
 
 	mpdAddress = viper.GetString("mpd_address")
+	mpdPassword = viper.GetString("mpd_password")
 	interval = viper.GetDuration("polling_interval_seconds") * time.Second
 	token = viper.GetString("listenbrainz_token")
 	if token == "" {
