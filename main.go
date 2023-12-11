@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 
 const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
+const ConfigDir = "mpd-brainz"
 const ConfigFile = "mpd-brainz.conf"
 
 type Config struct {
@@ -382,17 +384,37 @@ func shazam(conf Config) {
 func config() Config {
 	var conf Config
 
-	viper.SetConfigName(ConfigFile)
+	configRoot := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), ConfigDir)
+	if configRoot == ConfigDir {
+		configRoot = filepath.Join(os.Getenv("HOME"), ".config", ConfigDir)
+	}
+
+	err := os.Chdir(configRoot)
+	if err == os.ErrNotExist {
+		err = os.Mkdir(configRoot, 0700)
+	}
+	if err != nil {
+		Error("can't access config directory: %s", configRoot)
+		configRoot = ""
+	}
+
+	configPath := filepath.Join(configRoot, ConfigFile)
+	configPretty := strings.Replace(configPath, os.Getenv("HOME"), "~", 1)
+
+	Debug("loading configuration: %s", configPretty)
+
+	viper.SetConfigName(configPath)
+	viper.AddConfigPath(configRoot)
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("$HOME")
 
 	viper.SetDefault("mpd_address", "localhost:6600")
+	viper.SetDefault("mpd_password", "")
 	viper.SetDefault("polling_interval_seconds", 10)
 	viper.SetDefault("listenbrainz_token", "")
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err = viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			log.Fatalf("Error opening configuration file: %s", err)
+			Fatal("invalid configuration file: %s: %s", configPretty, err)
 		}
 	}
 
@@ -400,13 +422,14 @@ func config() Config {
 	conf.mpdPassword = viper.GetString("mpd_password")
 	conf.interval = viper.GetDuration("polling_interval_seconds") * time.Second
 	conf.token = viper.GetString("listenbrainz_token")
+
 	if conf.token == "" {
 		conf.token = os.Getenv("LISTENBRAINZ_TOKEN")
 	}
 	if conf.token == "" {
-		log.Fatal(fmt.Sprintln("ListenBrainz token not found.",
+		Fatal(fmt.Sprintln("ListenBrainz token not found.",
 			"Either define LISTENBRAINZ_TOKEN or set listenbrainz_token in",
-			"~/"+ConfigFile+"."))
+			"~/"+configPretty+"."))
 	}
 
 	return conf
