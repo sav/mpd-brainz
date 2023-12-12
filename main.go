@@ -45,7 +45,7 @@ import (
 const ConfigDir = "mpd-brainz"
 const ConfigFile = "mpd-brainz.conf"
 const DefaultLogFile = "mpd-brainz.log"
-const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
+const ListenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
 //go:embed VERSION
 var Version string
@@ -217,7 +217,7 @@ func (l *Listens) Submit(listenType string, token string) error {
 		Log("submitting listen: %s", l)
 	}
 
-	req, err := http.NewRequest("POST", listenBrainzURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", ListenBrainzURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
