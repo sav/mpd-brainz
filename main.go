@@ -209,7 +209,6 @@ func (l *Listens) Submit(listenType string, token string) error {
 	}
 
 	l.ListenType = listenType
-
 	if l.ListenType == "playing_now" {
 		l.Payload[0].ListenedAt = 0
 	} else if l.ListenType == "import" {
@@ -392,7 +391,6 @@ func setLog(rootDir string, logConf string) {
 	}
 
 	Debug("writing logs to file: %s", logFile.Name())
-
 	Logger = log.New(logFile, "", log.LstdFlags)
 	if Logger == nil {
 		Fatal("failed creating logger: %s", logPath)
@@ -440,7 +438,6 @@ func findConfig() (string, string) {
 
 func config() Config {
 	configRoot, configFile := findConfig()
-
 	viper.AddConfigPath(configRoot)
 	viper.SetConfigName(configFile)
 	viper.SetConfigType("yaml")
@@ -458,11 +455,9 @@ func config() Config {
 			Error("opening configuration file: %s: %s", viper.ConfigFileUsed(), err)
 		}
 	}
-
 	Debug("loading configuration: %s", viper.ConfigFileUsed())
 
 	var conf Config
-
 	conf.mpdAddress = viper.GetString("mpd_address")
 	conf.mpdPassword = viper.GetString("mpd_password")
 	conf.interval = viper.GetDuration("polling_interval_seconds") * time.Second
@@ -478,7 +473,6 @@ func config() Config {
 	}
 
 	setLog(configRoot, viper.GetString("log_file"))
-
 	return conf
 }
 
@@ -501,13 +495,11 @@ func optarg() {
 
 func main() {
 	optarg()
-
 	if printVersion {
 		version()
 	}
 
 	conf := config()
-
 	if importShazam != "" {
 		shazam(conf)
 	} else {
