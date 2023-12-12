@@ -406,7 +406,7 @@ type Config struct {
 	token       string
 }
 
-func config() Config {
+func findConfig() (string, string) {
 	configRoot := ""
 	configFile := ConfigFile
 
@@ -434,6 +434,12 @@ func config() Config {
 		configRoot = filepath.Dir(configPath)
 		configFile = filepath.Base(configPath)
 	}
+
+	return configRoot, configFile
+}
+
+func config() Config {
+	configRoot, configFile := findConfig()
 
 	viper.AddConfigPath(configRoot)
 	viper.SetConfigName(configFile)
