@@ -46,6 +46,7 @@ const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
 const ConfigDir = "mpd-brainz"
 const ConfigFile = "mpd-brainz.conf"
+const DefaultLogFile = "mpd-brainz.log"
 
 type Config struct {
 	mpdAddress  string
@@ -58,6 +59,7 @@ var (
 	verbose      bool
 	printVersion bool
 	importShazam string
+	logPath      string
 
 	lastListen Listens
 )
@@ -70,22 +72,24 @@ func version() {
 	os.Exit(0)
 }
 
+var Logger *log.Logger = log.New(os.Stdout, "", log.LstdFlags)
+
 func Log(fmt string, args ...any) {
-	log.Printf(fmt+"\n", args...)
+	Logger.Printf(fmt+"\n", args...)
 }
 
 func Debug(fmt string, args ...any) {
 	if verbose {
-		log.Printf(fmt+"\n", args...)
+		Logger.Printf(fmt+"\n", args...)
 	}
 }
 
 func Error(fmt string, args ...any) {
-	log.Printf("error: "+fmt+"\n", args...)
+	Logger.Printf("error: "+fmt+"\n", args...)
 }
 
 func Fatal(fmt string, args ...any) {
-	log.Fatalf("error: "+fmt+"\n", args...)
+	Logger.Fatalf("error: "+fmt+"\n", args...)
 }
 
 type Info struct {
@@ -274,7 +278,7 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 func scrobble(conf Config) {
 	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
 	if err != nil {
-		log.Fatal(err)
+		Fatal("%s", err)
 	}
 	defer conn.Close()
 	Log("connected to MPD: %s", conf.mpdAddress)
@@ -284,15 +288,14 @@ func scrobble(conf Config) {
 
 	ticker := time.NewTicker(conf.interval)
 	defer ticker.Stop()
-
-	Debug("scrobbling with an interval: %s", conf.interval)
+	Debug("scrobbling interval: %s", conf.interval)
 
 	for {
 		select {
 		case <-ticker.C:
 			currentListen, err := getCurrentListen(conn)
 			if err != nil {
-				log.Println("error obtaining current song from MPD:", err)
+				Error("error obtaining current song from MPD:", err)
 				continue
 			}
 			if !currentListen.Equal(lastListen) && !currentListen.IsNil() {
@@ -381,6 +384,36 @@ func shazam(conf Config) {
 	}
 }
 
+func setLog(rootDir string, logConf string) {
+	if logPath == "" {
+		if logConf == "" {
+			logPath = filepath.Join(rootDir, DefaultLogFile)
+		} else {
+			logPath = logConf
+		}
+	}
+
+	var logFile *os.File
+	var err error
+
+	if logPath == "-" {
+		logFile = os.Stdout
+	} else {
+		logFile, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			Error("opening log file: %s", err)
+			logFile = os.Stdout
+		}
+	}
+
+	Debug("writing logs to file: %s", logFile.Name())
+
+	Logger = log.New(logFile, "", log.LstdFlags)
+	if Logger == nil {
+		Fatal("failed creating logger: %s", logPath)
+	}
+}
+
 func config() Config {
 	var conf Config
 
@@ -398,23 +431,23 @@ func config() Config {
 		configRoot = ""
 	}
 
-	configPath := filepath.Join(configRoot, ConfigFile)
-	configPretty := strings.Replace(configPath, os.Getenv("HOME"), "~", 1)
-
-	Debug("loading configuration: %s", configPretty)
-
-	viper.SetConfigName(configPath)
 	viper.AddConfigPath(configRoot)
 	viper.SetConfigType("yaml")
+	viper.SetConfigName(ConfigFile)
+
+	Debug("loading configuration: %s", viper.ConfigFileUsed())
 
 	viper.SetDefault("mpd_address", "localhost:6600")
 	viper.SetDefault("mpd_password", "")
 	viper.SetDefault("polling_interval_seconds", 10)
 	viper.SetDefault("listenbrainz_token", "")
+	viper.SetDefault("log_file", "")
 
 	if err = viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			Fatal("invalid configuration file: %s: %s", configPretty, err)
+			Fatal("invalid configuration file: %s: %s", viper.ConfigFileUsed(), err)
+		} else {
+			Error("opening configuration file: %s: %s", viper.ConfigFileUsed(), err)
 		}
 	}
 
@@ -429,8 +462,10 @@ func config() Config {
 	if conf.token == "" {
 		Fatal(fmt.Sprintln("ListenBrainz token not found.",
 			"Either define LISTENBRAINZ_TOKEN or set listenbrainz_token in",
-			"~/"+configPretty+"."))
+			viper.ConfigFileUsed()+"."))
 	}
+
+	setLog(configRoot, viper.GetString("log_file"))
 
 	return conf
 }
@@ -439,6 +474,7 @@ func optarg() {
 	flag.BoolVar(&verbose, "v", false, "Enable debug logs.")
 	flag.BoolVar(&printVersion, "V", false, "Print version number.")
 	flag.StringVar(&importShazam, "i", "", "Import Shazam Library.")
+	flag.StringVar(&logPath, "l", "", "Set log file.")
 	flag.Parse()
 }
 
