@@ -59,6 +59,7 @@ var (
 	verbose      bool
 	printVersion bool
 	importShazam string
+	configPath   string
 	logPath      string
 
 	lastListen Listens
@@ -415,27 +416,37 @@ func setLog(rootDir string, logConf string) {
 }
 
 func config() Config {
-	var conf Config
+	configRoot := ""
+	configFile := ConfigFile
 
-	configRoot := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), ConfigDir)
-	if configRoot == ConfigDir {
-		configRoot = filepath.Join(os.Getenv("HOME"), ".config", ConfigDir)
-	}
+	if configPath == "" {
+		configRoot = filepath.Join(os.Getenv("XDG_CONFIG_HOME"), ConfigDir)
+		if configRoot == ConfigDir {
+			configRoot = filepath.Join(os.Getenv("HOME"), ".config", ConfigDir)
+		}
 
-	err := os.Chdir(configRoot)
-	if err == os.ErrNotExist {
-		err = os.Mkdir(configRoot, 0700)
-	}
-	if err != nil {
-		Error("can't access config directory: %s", configRoot)
-		configRoot = ""
+		err := os.Chdir(configRoot)
+		if err == os.ErrNotExist {
+			err = os.Mkdir(configRoot, 0700)
+		}
+		if err != nil {
+			Error("can't access config directory: %s", configRoot)
+			configRoot = ""
+		}
+	} else {
+		configAbs, err := filepath.Abs(configPath)
+		if err != nil {
+			Error("invalid file path: %s", configPath)
+		} else {
+			configPath = configAbs
+		}
+		configRoot = filepath.Dir(configPath)
+		configFile = filepath.Base(configPath)
 	}
 
 	viper.AddConfigPath(configRoot)
+	viper.SetConfigName(configFile)
 	viper.SetConfigType("yaml")
-	viper.SetConfigName(ConfigFile)
-
-	Debug("loading configuration: %s", viper.ConfigFileUsed())
 
 	viper.SetDefault("mpd_address", "localhost:6600")
 	viper.SetDefault("mpd_password", "")
@@ -443,13 +454,17 @@ func config() Config {
 	viper.SetDefault("listenbrainz_token", "")
 	viper.SetDefault("log_file", "")
 
-	if err = viper.ReadInConfig(); err != nil {
+	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			Fatal("invalid configuration file: %s: %s", viper.ConfigFileUsed(), err)
 		} else {
 			Error("opening configuration file: %s: %s", viper.ConfigFileUsed(), err)
 		}
 	}
+
+	Debug("loading configuration: %s", viper.ConfigFileUsed())
+
+	var conf Config
 
 	conf.mpdAddress = viper.GetString("mpd_address")
 	conf.mpdPassword = viper.GetString("mpd_password")
@@ -475,6 +490,7 @@ func optarg() {
 	flag.BoolVar(&printVersion, "V", false, "Print version number.")
 	flag.StringVar(&importShazam, "i", "", "Import Shazam Library.")
 	flag.StringVar(&logPath, "l", "", "Set log file.")
+	flag.StringVar(&configPath, "c", "", "Config file.")
 	flag.Parse()
 }
 
