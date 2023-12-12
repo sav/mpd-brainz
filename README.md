@@ -22,7 +22,7 @@ Configuring mpd-brainz is straightforward:
    Set the environment variable `LISTENBRAINZ_TOKEN` with your ListenBrainz Authentication Token.
 
 2. **Configuration File:**
-   Alternatively, create a file `~/.mpd-brainz.conf` with a single line:
+   Alternatively, create a file `~/.config/mpd-brainz/mpd-brainz.conf` with the line:
 
 ```yaml
 listenbrainz_token: "<token>"
