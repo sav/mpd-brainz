@@ -1,5 +1,5 @@
 mpd_address: "localhost:6600"
 mpd_password: ""
 polling_interval_seconds: 30
-listenbrainz_token: "<token>"
-log_file: "mpd-brainz.log"
+listenbrainz_token: ""
+log_file: "~/.config/mpd-brainz/mpd-brainz.log"
