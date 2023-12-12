@@ -42,28 +42,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
-
 const ConfigDir = "mpd-brainz"
 const ConfigFile = "mpd-brainz.conf"
 const DefaultLogFile = "mpd-brainz.log"
-
-type Config struct {
-	mpdAddress  string
-	mpdPassword string
-	interval    time.Duration
-	token       string
-}
-
-var (
-	verbose      bool
-	printVersion bool
-	importShazam string
-	configPath   string
-	logPath      string
-
-	lastListen Listens
-)
+const listenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
 //go:embed VERSION
 var Version string
@@ -276,6 +258,8 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 		originUrl, musicService, 0), nil
 }
 
+var lastListen Listens
+
 func scrobble(conf Config) {
 	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
 	if err != nil {
@@ -415,6 +399,13 @@ func setLog(rootDir string, logConf string) {
 	}
 }
 
+type Config struct {
+	mpdAddress  string
+	mpdPassword string
+	interval    time.Duration
+	token       string
+}
+
 func config() Config {
 	configRoot := ""
 	configFile := ConfigFile
@@ -484,6 +475,14 @@ func config() Config {
 
 	return conf
 }
+
+var (
+	verbose      bool
+	printVersion bool
+	importShazam string
+	configPath   string
+	logPath      string
+)
 
 func optarg() {
 	flag.BoolVar(&verbose, "v", false, "Enable debug logs.")
