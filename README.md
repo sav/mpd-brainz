@@ -22,11 +22,29 @@ Configuring mpd-brainz is straightforward:
    Set the environment variable `LISTENBRAINZ_TOKEN` with your ListenBrainz Authentication Token.
 
 2. **Configuration File:**
-   Alternatively, create a file `~/.config/mpd-brainz/mpd-brainz.conf` with the line:
+   Copy the example configuration file to the proper location and customize it:
 
-```yaml
-listenbrainz_token: "<token>"
-```
+   ```bash
+   mkdir -p ~/.config/mpd-brainz
+   cp mpd-brainz.conf.example ~/.config/mpd-brainz/mpd-brainz.conf
+   ```
+
+   Then edit `~/.config/mpd-brainz/mpd-brainz.conf` with your settings:
+
+   ```yaml
+   mpd_address: "localhost:6600"
+   mpd_password: ""
+   polling_interval_seconds: 30
+   listenbrainz_token: "<your_listenbrainz_token_here>"
+   log_file: "~/.config/mpd-brainz/mpd-brainz.log"
+   ```
+
+   **Configuration Options:**
+   - `mpd_address`: MPD server address and port (default: localhost:6600)
+   - `mpd_password`: MPD server password if authentication is enabled
+   - `polling_interval_seconds`: How often to check for new tracks (default: 30)
+   - `listenbrainz_token`: Your ListenBrainz Authentication Token (required)
+   - `log_file`: Path to the log file
 
 Ensure you have a valid ListenBrainz Authentication Token to successfully scrobble your music.
 
