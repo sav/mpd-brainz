@@ -56,6 +56,12 @@ Once running, mpd-brainz will automatically scrobble your MPD music playback to 
 ./mpd-brainz -v 
 ```
 
+A song is announced as "playing now" when MPD starts playing it, and submitted
+as a listen after half its length or four minutes, whichever comes first.
+Skipped songs are not submitted, nor is a queue MPD restored on start-up while
+it sits paused or stopped. Online radio, which reports no length, is submitted
+after one minute.
+
 ## Imports
 
 To import your Shazam library exported as a CSV file into `mpd-brainz`, follow these steps:

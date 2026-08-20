@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,6 +208,18 @@ func (l *Listens) Add(artistName string, trackName string, releaseName string,
 	})
 }
 
+func (l *Listens) SetListenedAt(listenedAt int64) {
+	if l.Length() > 0 {
+		l.Payload[0].ListenedAt = listenedAt
+	}
+}
+
+func (l *Listens) SetDuration(duration time.Duration) {
+	if l.Length() > 0 && duration > 0 {
+		l.Payload[0].Track.Info.Duration = int(duration.Seconds())
+	}
+}
+
 func (l *Listens) Submit(listenType string, token string) error {
 	l.ListenType = listenType
 	if l.ListenType == "playing_now" {
@@ -288,7 +301,120 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 	return listens, nil
 }
 
-var lastListen Listens
+// A listen is only submitted once we have watched enough of the song
+// actually play, which is ListenBrainz's own recommendation: half of the
+// track, or four minutes, whichever comes first.
+const ListenThreshold = 4 * time.Minute
+
+// Online radio reports no duration, leaving no track length to halve.
+// Require a short minimum instead.
+const OnlineRadioThreshold = time.Minute
+
+func listenThreshold(duration time.Duration) time.Duration {
+	if duration <= 0 {
+		return OnlineRadioThreshold
+	}
+	return min(duration/2, ListenThreshold)
+}
+
+func seconds(value string) time.Duration {
+	if value == "" {
+		return 0
+	}
+	s, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		Debug("parsing seconds: %q: %s", value, err)
+		return 0
+	}
+	return time.Duration(s * float64(time.Second))
+}
+
+// Playback follows the song MPD currently sits on, along with how much of
+// it we have watched play. MPD reports the current song whether it is
+// playing, paused or stopped, so the playback we observe is what tells a
+// real listen apart from a queue that was restored on start-up.
+type Playback struct {
+	listen     Listens
+	listenedAt int64
+	duration   time.Duration
+	elapsed    time.Duration
+	played     time.Duration
+	announced  bool
+	submitted  bool
+	polledAt   time.Time
+}
+
+func (p *Playback) poll(conn *mpd.Client, conf Config) error {
+	status, err := conn.Status()
+	if err != nil {
+		return fmt.Errorf("obtaining status from MPD: %s", err)
+	}
+
+	currentListen, err := getCurrentListen(conn)
+	if err != nil {
+		return fmt.Errorf("obtaining current song from MPD: %s", err)
+	}
+
+	now := time.Now()
+	polledAt := p.polledAt
+	p.polledAt = now
+
+	playing := status["state"] == "play"
+	elapsed := seconds(status["elapsed"])
+
+	if currentListen.IsNil() {
+		*p = Playback{polledAt: now}
+		return nil
+	}
+
+	// Either a different song, or the same one started over by repeat or
+	// single mode, in which case MPD rewinds the elapsed time.
+	if !currentListen.Equal(p.listen) || elapsed+time.Second < p.elapsed {
+		*p = Playback{
+			listen:     currentListen,
+			listenedAt: now.Unix(),
+			duration:   seconds(status["duration"]),
+			polledAt:   now,
+		}
+		p.listen.SetDuration(p.duration)
+		// Credit the playback that happened before this poll, but never
+		// more than one interval of it: anything longer is a position MPD
+		// restored, not playback we watched.
+		if playing {
+			p.played = min(elapsed, conf.interval)
+		}
+		Debug("current song: %s (duration: %s, threshold: %s)",
+			&p.listen, p.duration, listenThreshold(p.duration))
+	} else if playing && !polledAt.IsZero() {
+		p.played += now.Sub(polledAt)
+	}
+	p.elapsed = elapsed
+
+	if !playing {
+		Debug("MPD is not playing (state: %s), holding %s of %s",
+			status["state"], p.played, listenThreshold(p.duration))
+		return nil
+	}
+
+	if !p.announced {
+		if err := p.listen.Submit("playing_now", conf.token); err != nil {
+			return fmt.Errorf("submitting \"playing now\" to ListenBrainz: %s", err)
+		}
+		p.announced = true
+	}
+
+	if !p.submitted && p.played >= listenThreshold(p.duration) {
+		// Submitting "playing now" drops the timestamp, so restore the
+		// moment playback started before submitting the listen itself.
+		p.listen.SetListenedAt(p.listenedAt)
+		if err := p.listen.Submit("single", conf.token); err != nil {
+			return fmt.Errorf("submitting scrobble to ListenBrainz: %s", err)
+		}
+		p.submitted = true
+	}
+
+	return nil
+}
 
 func scrobble(conf Config) {
 	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
@@ -305,27 +431,13 @@ func scrobble(conf Config) {
 	defer ticker.Stop()
 	Debug("scrobbling interval: %s", conf.interval)
 
+	var playback Playback
+
 	for {
 		select {
 		case <-ticker.C:
-			currentListen, err := getCurrentListen(conn)
-			if err != nil {
-				Error("error obtaining current song from MPD:", err)
-				continue
-			}
-			if !currentListen.Equal(lastListen) && !currentListen.IsNil() {
-				err = currentListen.Submit("single", conf.token)
-				if err != nil {
-					Error("submitting scrobble to ListenBrainz: %s", err)
-					continue
-				}
-				err = currentListen.Submit("playing_now", conf.token)
-				if err != nil {
-					Error("submitting \"playing now\" to ListenBrainz: %s", err)
-					continue
-				}
-				lastListen = currentListen
-			} else {
+			if err := playback.poll(conn, conf); err != nil {
+				Error("%s", err)
 			}
 		case <-stop:
 			return
