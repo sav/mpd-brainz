@@ -208,6 +208,13 @@ func (l *Listens) Add(artistName string, trackName string, releaseName string,
 	})
 }
 
+func (l *Listens) OriginUrl() string {
+	if l.Length() == 0 {
+		return ""
+	}
+	return l.Payload[0].Track.Info.OriginUrl
+}
+
 func (l *Listens) SetListenedAt(listenedAt int64) {
 	if l.Length() > 0 {
 		l.Payload[0].ListenedAt = listenedAt
@@ -333,6 +340,8 @@ func seconds(value string) time.Duration {
 // real listen apart from a queue that was restored on start-up.
 type Playback struct {
 	listen     Listens
+	songID     string
+	originUrl  string
 	listenedAt int64
 	duration   time.Duration
 	elapsed    time.Duration
@@ -359,17 +368,25 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 
 	playing := status["state"] == "play"
 	elapsed := seconds(status["elapsed"])
+	songID := status["songid"]
+	originUrl := currentListen.OriginUrl()
 
 	if currentListen.IsNil() {
 		*p = Playback{polledAt: now}
 		return nil
 	}
 
-	// Either a different song, or the same one started over by repeat or
-	// single mode, in which case MPD rewinds the elapsed time.
-	if !currentListen.Equal(p.listen) || elapsed+time.Second < p.elapsed {
+	// MPD hands out a fresh song id every time it starts playing a song,
+	// repeats included, so it tells a new listen from a seek within the
+	// one we are already following. Online radio is the exception: the
+	// station is a single queue entry whose id and file never change, and
+	// only the metadata says the song did.
+	if songID != p.songID || originUrl != p.originUrl ||
+		!currentListen.Equal(p.listen) {
 		*p = Playback{
 			listen:     currentListen,
+			songID:     songID,
+			originUrl:  originUrl,
 			listenedAt: now.Unix(),
 			duration:   seconds(status["duration"]),
 			polledAt:   now,
