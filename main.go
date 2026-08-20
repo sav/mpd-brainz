@@ -208,18 +208,21 @@ func (l *Listens) Add(artistName string, trackName string, releaseName string,
 }
 
 func (l *Listens) Submit(listenType string, token string) error {
-	jsonData, err := json.MarshalIndent(l, "", "   ")
-	if err != nil {
-		return err
-	}
-
 	l.ListenType = listenType
 	if l.ListenType == "playing_now" {
-		l.Payload[0].ListenedAt = 0
+		// A "playing now" listen carries no timestamp.
+		if l.Length() > 0 {
+			l.Payload[0].ListenedAt = 0
+		}
 	} else if l.ListenType == "import" {
 		Log("importing %d listens", l.Length())
 	} else {
 		Log("submitting listen: %s", l)
+	}
+
+	jsonData, err := json.MarshalIndent(l, "", "   ")
+	if err != nil {
+		return err
 	}
 
 	req, err := http.NewRequest("POST", ListenBrainzURL, bytes.NewBuffer(jsonData))
