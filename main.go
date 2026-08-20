@@ -48,6 +48,14 @@ const ConfigFile = "mpd-brainz.conf"
 const DefaultLogFile = "mpd-brainz.log"
 const ListenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
+// Submitting happens inside the polling loop, so a request that never
+// answers — the network dropped, the API is wedged — stops us from reading
+// MPD at all, reconnecting included. Give up early instead: a listen is
+// worth far less than the loop.
+const SubmitTimeout = 10 * time.Second
+
+var submitClient = &http.Client{Timeout: SubmitTimeout}
+
 //go:embed VERSION
 var Version string
 
@@ -250,8 +258,7 @@ func (l *Listens) Submit(listenType string, token string) error {
 	req.Header.Set("Authorization", "Token "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := submitClient.Do(req)
 	if err != nil {
 		return err
 	}
