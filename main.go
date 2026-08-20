@@ -224,9 +224,7 @@ func (l *Listens) Submit(listenType string, token string) error {
 	l.ListenType = listenType
 	if l.ListenType == "playing_now" {
 		// A "playing now" listen carries no timestamp.
-		if l.Length() > 0 {
-			l.Payload[0].ListenedAt = 0
-		}
+		l.SetListenedAt(0)
 	} else if l.ListenType == "import" {
 		Log("importing %d listens", l.Length())
 	} else {
