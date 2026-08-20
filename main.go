@@ -414,12 +414,39 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 	return nil
 }
 
+// MPD can go away at any time — the user quits it, the service restarts —
+// and gompd never dials again on its own, leaving every command failing
+// forever. The ping doubles as the keepalive MPD expects within its
+// connection_timeout.
+func connect(conn *mpd.Client, conf Config) (*mpd.Client, bool) {
+	if conn != nil {
+		if err := conn.Ping(); err == nil {
+			return conn, false
+		}
+		Error("lost connection to MPD: %s", conf.mpdAddress)
+		conn.Close()
+	}
+
+	next, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
+	if err != nil {
+		Debug("reconnecting to MPD: %s", err)
+		return nil, false
+	}
+	Log("reconnected to MPD: %s", conf.mpdAddress)
+
+	return next, true
+}
+
 func scrobble(conf Config) {
 	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
 	if err != nil {
 		Fatal("%s", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
 	Log("connected to MPD: %s", conf.mpdAddress)
 
 	stop := make(chan os.Signal, 1)
@@ -434,6 +461,15 @@ func scrobble(conf Config) {
 	for {
 		select {
 		case <-ticker.C:
+			var reconnected bool
+			if conn, reconnected = connect(conn, conf); conn == nil {
+				continue
+			}
+			if reconnected {
+				// Whatever happened while we were away is not playback
+				// we watched.
+				playback.polledAt = time.Time{}
+			}
 			if err := playback.poll(conn, conf); err != nil {
 				Error("%s", err)
 			}
