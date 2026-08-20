@@ -427,9 +427,10 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 
 	if !p.announced {
 		if err := p.listen.Submit("playing_now", conf.token); err != nil {
-			return fmt.Errorf("submitting \"playing now\" to ListenBrainz: %s", err)
+			Error("submitting \"playing now\" to ListenBrainz: %s", err)
+		} else {
+			p.announced = true
 		}
-		p.announced = true
 	}
 
 	if !p.submitted && p.played >= listenThreshold(p.duration) {
