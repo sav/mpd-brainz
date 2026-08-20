@@ -452,10 +452,11 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 // connection_timeout.
 func connect(conn *mpd.Client, conf Config) (*mpd.Client, bool) {
 	if conn != nil {
-		if err := conn.Ping(); err == nil {
+		err := conn.Ping()
+		if err == nil {
 			return conn, false
 		}
-		Error("lost connection to MPD: %s", conf.mpdAddress)
+		Error("lost connection to MPD: %s: %s", conf.mpdAddress, err)
 		conn.Close()
 	}
 
