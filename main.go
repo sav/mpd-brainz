@@ -473,14 +473,17 @@ func connect(conn *mpd.Client, conf Config) (*mpd.Client, bool) {
 func scrobble(conf Config) {
 	conn, err := mpd.DialAuthenticated("tcp", conf.mpdAddress, conf.mpdPassword)
 	if err != nil {
-		Fatal("%s", err)
+		// MPD may simply not be up yet, so keep going: the loop dials
+		// again on every tick.
+		Error("connecting to MPD: %s", err)
+	} else {
+		Log("connected to MPD: %s", conf.mpdAddress)
 	}
 	defer func() {
 		if conn != nil {
 			conn.Close()
 		}
 	}()
-	Log("connected to MPD: %s", conf.mpdAddress)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
