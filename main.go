@@ -84,6 +84,11 @@ type Info struct {
 	SubmissionClientVersion string   `json:"submission_client_version,omitempty"`
 	Tags                    []string `json:"tags,omitempty"`
 	Duration                int      `json:"duration,omitempty"`
+	ArtistMBIDs             []string `json:"artist_mbids,omitempty"`
+	RecordingMBID           string   `json:"recording_mbid,omitempty"`
+	ReleaseMBID             string   `json:"release_mbid,omitempty"`
+	ReleaseGroupMBID        string   `json:"release_group_mbid,omitempty"`
+	TrackMBID               string   `json:"track_mbid,omitempty"`
 }
 
 type Track struct {
@@ -241,6 +246,26 @@ func (l *Listens) Submit(listenType string, token string) error {
 	return nil
 }
 
+// SetMusicBrainzIDs copies the MusicBrainz identifiers MPD reads from the
+// file tags into the last listen added. Beware of the tag naming inherited
+// from Picard: MUSICBRAINZ_TRACKID holds the recording MBID, whereas the
+// track MBID lives in MUSICBRAINZ_RELEASETRACKID.
+func (l *Listens) SetMusicBrainzIDs(song mpd.Attrs) {
+	n := l.Length()
+	if n == 0 {
+		return
+	}
+
+	info := &l.Payload[n-1].Track.Info
+	info.RecordingMBID = song["MUSICBRAINZ_TRACKID"]
+	info.TrackMBID = song["MUSICBRAINZ_RELEASETRACKID"]
+	info.ReleaseMBID = song["MUSICBRAINZ_ALBUMID"]
+	info.ReleaseGroupMBID = song["MUSICBRAINZ_RELEASEGROUPID"]
+	if artistMBID := song["MUSICBRAINZ_ARTISTID"]; artistMBID != "" {
+		info.ArtistMBIDs = []string{artistMBID}
+	}
+}
+
 func getCurrentListen(conn *mpd.Client) (Listens, error) {
 	currentSong, err := conn.CurrentSong()
 	if err != nil {
@@ -253,8 +278,11 @@ func getCurrentListen(conn *mpd.Client) (Listens, error) {
 	originUrl := currentSong["file"]
 	musicService := currentSong["Name"]
 
-	return NewListen("single", artistName, trackName, releaseName,
-		originUrl, musicService, 0), nil
+	listens := NewListen("single", artistName, trackName, releaseName,
+		originUrl, musicService, 0)
+	listens.SetMusicBrainzIDs(currentSong)
+
+	return listens, nil
 }
 
 var lastListen Listens
