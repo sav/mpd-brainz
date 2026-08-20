@@ -394,8 +394,9 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 		p.listen.SetDuration(p.duration)
 		// Credit the playback that happened before this poll, but never
 		// more than one interval of it: anything longer is a position MPD
-		// restored, not playback we watched.
-		if playing {
+		// restored, not playback we watched. After a gap we watched
+		// nothing at all.
+		if playing && !polledAt.IsZero() {
 			p.played = min(elapsed, conf.interval)
 		}
 		Debug("current song: %s (duration: %s, threshold: %s)",
