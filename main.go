@@ -401,7 +401,12 @@ func (p *Playback) poll(conn *mpd.Client, conf Config) error {
 		Debug("current song: %s (duration: %s, threshold: %s)",
 			&p.listen, p.duration, listenThreshold(p.duration))
 	} else if playing && !polledAt.IsZero() {
-		p.played += now.Sub(polledAt)
+		// MPD's elapsed time only advances while it plays, so it caps
+		// what wall time alone would credit across a gap: a paused song
+		// between two polls, a suspended machine, a stalled stream.
+		if progress := min(now.Sub(polledAt), elapsed-p.elapsed); progress > 0 {
+			p.played += progress
+		}
 	}
 	p.elapsed = elapsed
 
