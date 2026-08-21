@@ -48,6 +48,20 @@ const ConfigFile = "mpd-brainz.conf"
 const DefaultLogFile = "mpd-brainz.log"
 const ListenBrainzURL = "https://api.listenbrainz.org/1/submit-listens"
 
+// Submitting happens inside the polling loop, so a request that never
+// answers — the network dropped, the API is wedged — stops us from reading
+// MPD at all, reconnecting included. Give up early instead: a listen is
+// worth far less than the loop.
+const SubmitTimeout = 10 * time.Second
+
+var submitClient = &http.Client{Timeout: SubmitTimeout}
+
+// Every failed submission is logged, but nothing says when ListenBrainz
+// answers again, leaving a log that ends in errors and no way to tell a
+// still-broken connection from one that recovered. Remember that we are
+// down so the next success can say so, once.
+var submitFailed bool
+
 //go:embed VERSION
 var Version string
 
@@ -250,9 +264,9 @@ func (l *Listens) Submit(listenType string, token string) error {
 	req.Header.Set("Authorization", "Token "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := submitClient.Do(req)
 	if err != nil {
+		submitFailed = true
 		return err
 	}
 	defer resp.Body.Close()
@@ -261,7 +275,13 @@ func (l *Listens) Submit(listenType string, token string) error {
 		Debug("bad request with data: %s", jsonData)
 	}
 	if resp.StatusCode != http.StatusOK {
+		submitFailed = true
 		return fmt.Errorf("error submitting request. status: %s", resp.Status)
+	}
+
+	if submitFailed {
+		Log("reached ListenBrainz again: %s", ListenBrainzURL)
+		submitFailed = false
 	}
 
 	return nil
